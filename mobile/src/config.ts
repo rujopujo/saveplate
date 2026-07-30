@@ -1,1 +1,1 @@
-export const API_URL = 'https://saveplate-backend.onrender.com';
+export const API_URL = 'https://saveplate.onrender.com';
