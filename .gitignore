@@ -3,3 +3,6 @@ node_modules/
 dist/
 *.log
 .env
+cloudflared.exe
+serveo.log
+mobile/tunnel.js
