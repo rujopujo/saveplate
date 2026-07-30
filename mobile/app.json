@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Save Plate",
+    "slug": "save-plate",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": [
+      "android"
+    ],
+    "android": {
+      "package": "com.saveplate.app",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

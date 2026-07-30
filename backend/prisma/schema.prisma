@@ -1,0 +1,98 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  CONSUMER
+  RESTAURANT
+}
+
+enum DiscountTier {
+  HALF_OFF
+  THREE_QUARTER_OFF
+  FREE
+}
+
+enum ReservationStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  email        String        @unique
+  password     String
+  name         String
+  role         Role
+  location              Unsupported("GEOMETRY(Point, 4326)")?
+  co2_saved             Float         @default(0)
+  createdAt             DateTime      @default(now())
+  failedLoginAttempts   Int           @default(0)
+  lockedUntil           DateTime?
+  surplusItems          SurplusItem[]
+  reservations          Reservation[]
+  refreshTokens         RefreshToken[]
+
+  @@map("User")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  tokenHash String
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String
+  ipAddress String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
+model SurplusItem {
+  id                String        @id @default(uuid()) @db.Uuid
+  restaurantId      String        @map("restaurant_id") @db.Uuid
+  restaurant        User          @relation(fields: [restaurantId], references: [id])
+  name              String
+  quantity          Int
+  originalPrice     Float         @map("original_price")
+  discountTier      DiscountTier  @map("discount_tier")
+  pickupWindowStart DateTime      @map("pickup_window_start")
+  pickupWindowEnd   DateTime      @map("pickup_window_end")
+  active            Boolean       @default(true)
+  location          Unsupported("GEOMETRY(Point, 4326)")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  reservations      Reservation[]
+
+  @@map("surplus_items")
+}
+
+model Reservation {
+  id            String            @id @default(uuid()) @db.Uuid
+  surplusItemId String            @map("surplus_item_id") @db.Uuid
+  surplusItem   SurplusItem       @relation(fields: [surplusItemId], references: [id])
+  consumerId    String            @map("consumer_id") @db.Uuid
+  consumer      User              @relation(fields: [consumerId], references: [id])
+  otpCode       String            @map("otp_code")
+  qrData        String            @map("qr_data")
+  status        ReservationStatus
+  claimedAt     DateTime          @default(now()) @map("claimed_at")
+  quantity      Int               @default(1)
+
+  @@map("reservations")
+}
