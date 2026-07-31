@@ -48,11 +48,14 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/),
   name: z.string(),
-  role: z.enum(['CONSUMER', 'RESTAURANT'])
+  role: z.enum(['CONSUMER', 'RESTAURANT', 'consumer', 'restaurant'])
 });
 
 app.post('/api/v1/auth/register', authLimiter, async (req: any, res: any) => {
   try {
+    if (req.body.role && typeof req.body.role === 'string') {
+      req.body.role = req.body.role.toUpperCase();
+    }
     const { email, password, name, role } = registerSchema.parse(req.body);
     const hashedPassword = await bcrypt.hash(password, 12);
     
@@ -187,28 +190,68 @@ app.post('/api/v1/auth/logout', authMiddleware, async (req: any, res: any) => {
   }
 });
 
+app.get('/api/v1/me', authMiddleware, async (req: any, res: any) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: { id: true, name: true, email: true, role: true, co2_saved: true }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, co2Saved: user.co2_saved });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
 app.get('/api/v1/surplus', authMiddleware, roleGuard(['CONSUMER', 'RESTAURANT']), async (req: any, res: any) => {
   try {
-    const items = await prisma.$queryRawUnsafe(`
-      SELECT id, name, quantity, discount_tier as "discountTier", pickup_window_end as "pickupWindowEnd", 
-      ST_X(location::geometry) as lng, ST_Y(location::geometry) as lat 
-      FROM surplus_items WHERE active = true AND quantity > 0
-    `);
-    res.json(items);
+    const items = await prisma.surplusItem.findMany({
+      where: { active: true, quantity: { gt: 0 } }
+    });
+    const mapped = items.map(item => {
+      let tierStr = item.discountTier as string;
+      if (item.discountTier === 'HALF_OFF') tierStr = '50% OFF';
+      else if (item.discountTier === 'THREE_QUARTER_OFF') tierStr = '75% OFF';
+      else if (item.discountTier === 'FREE') tierStr = 'FREE';
+
+      return {
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        discountTier: tierStr,
+        pickupWindowEnd: item.pickupWindowEnd,
+        lng: item.lng,
+        lat: item.lat
+      };
+    });
+    res.json(mapped);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
   }
 });
 
 app.post('/api/v1/surplus', authMiddleware, roleGuard(['RESTAURANT']), async (req: any, res: any) => {
-  const { name, quantity, originalPrice, discountTier, pickupWindowStart, pickupWindowEnd, lat, lng } = req.body;
+  let { name, quantity, originalPrice, discountTier, pickupWindowStart, pickupWindowEnd, lat, lng } = req.body;
   const id = crypto.randomUUID();
   
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO surplus_items (id, restaurant_id, name, quantity, original_price, discount_tier, pickup_window_start, pickup_window_end, location, created_at) 
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::"DiscountTier", $7, $8, ST_SetSRID(ST_MakePoint($9, $10), 4326), NOW())`,
-    id, req.user.userId, name, quantity, originalPrice, discountTier, new Date(pickupWindowStart), new Date(pickupWindowEnd), lng, lat
-  );
+  if (discountTier === '50% OFF') discountTier = 'HALF_OFF';
+  else if (discountTier === '75% OFF') discountTier = 'THREE_QUARTER_OFF';
+  else if (discountTier === 'FREE') discountTier = 'FREE';
+
+  await prisma.surplusItem.create({
+    data: {
+      id,
+      restaurantId: req.user.userId,
+      name,
+      quantity,
+      originalPrice,
+      discountTier,
+      pickupWindowStart: new Date(pickupWindowStart),
+      pickupWindowEnd: new Date(pickupWindowEnd),
+      lat,
+      lng
+    }
+  });
   
   const nearbyUsers = await findNearbyUsers(prisma, lng, lat, 5000);
   if (nearbyUsers.length) {
@@ -235,9 +278,9 @@ app.post('/api/v1/claim', authMiddleware, roleGuard(['CONSUMER']), async (req: a
       }
     });
 
-    const item: any[] = await prisma.$queryRawUnsafe(`SELECT ST_X(location::geometry) as lng, ST_Y(location::geometry) as lat FROM surplus_items WHERE id = $1::uuid`, surplusItemId);
-    if (item.length) {
-      const { lat, lng } = item[0];
+    const item = await prisma.surplusItem.findUnique({ where: { id: surplusItemId } });
+    if (item) {
+      const { lat, lng } = item;
       emitToNearbyRooms(io, lat, lng, 'update_pin_qty', { surplusItemId, newQuantity });
       if (soldOut) emitRemovePin(io, surplusItemId);
     }
@@ -278,13 +321,18 @@ app.post('/api/v1/verify', authMiddleware, roleGuard(['RESTAURANT']), async (req
 });
 
 cron.schedule('* * * * *', async () => {
-  const deactivated: any[] = await prisma.$queryRawUnsafe(`
-    UPDATE surplus_items 
-    SET active = false 
-    WHERE active = true AND pickup_window_end < NOW()
-    RETURNING id
-  `);
-  deactivated.forEach(item => emitRemovePin(io, item.id));
+  const expiredItems = await prisma.surplusItem.findMany({
+    where: { active: true, pickupWindowEnd: { lt: new Date() } }
+  });
+  
+  if (expiredItems.length > 0) {
+    const ids = expiredItems.map(item => item.id);
+    await prisma.surplusItem.updateMany({
+      where: { id: { in: ids } },
+      data: { active: false }
+    });
+    expiredItems.forEach(item => emitRemovePin(io, item.id));
+  }
 });
 
 const PORT = process.env.PORT || 3000;

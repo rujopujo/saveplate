@@ -3,6 +3,7 @@ import { View, StyleSheet, StatusBar, ActivityIndicator, Text } from 'react-nati
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import ConsumerMap from './src/screens/ConsumerMap';
 import RestaurantScanner from './src/screens/RestaurantScanner';
+import RestaurantDashboard from './src/screens/RestaurantDashboard';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 
@@ -28,7 +29,7 @@ function AppContent() {
   }
 
   if (userRole === 'consumer') return <ConsumerMap />;
-  if (userRole === 'restaurant') return <RestaurantScanner />;
+  if (userRole === 'restaurant') return <RestaurantDashboard />;
 
   return (
     <View style={[styles.container, styles.center]}>

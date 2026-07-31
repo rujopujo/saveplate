@@ -33,10 +33,10 @@ export function setupSockets(server: HttpServer): Server {
 
     socket.on('update_location', async ({ lat, lng }) => {
       const userId = (socket as any).user.userId;
-      await prisma.$executeRawUnsafe(
-        `UPDATE "User" SET location = ST_SetSRID(ST_MakePoint($1, $2), 4326) WHERE id = $3`,
-        lng, lat, userId
-      );
+      await prisma.user.update({
+        where: { id: userId },
+        data: { lat, lng }
+      });
     });
   });
 

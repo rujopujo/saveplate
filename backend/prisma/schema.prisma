@@ -30,7 +30,8 @@ model User {
   password     String
   name         String
   role         Role
-  location              Unsupported("GEOMETRY(Point, 4326)")?
+  lat          Float?
+  lng          Float?
   co2_saved             Float         @default(0)
   createdAt             DateTime      @default(now())
   failedLoginAttempts   Int           @default(0)
@@ -75,7 +76,8 @@ model SurplusItem {
   pickupWindowStart DateTime      @map("pickup_window_start")
   pickupWindowEnd   DateTime      @map("pickup_window_end")
   active            Boolean       @default(true)
-  location          Unsupported("GEOMETRY(Point, 4326)")
+  lat               Float
+  lng               Float
   createdAt         DateTime      @default(now()) @map("created_at")
   reservations      Reservation[]
 

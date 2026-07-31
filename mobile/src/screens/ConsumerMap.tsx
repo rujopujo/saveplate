@@ -98,6 +98,7 @@ export default function ConsumerMap() {
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const [passData, setPassData] = useState<{otp: string, qrData: string} | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
+  const [webViewLoaded, setWebViewLoaded] = useState(false);
   
   const webViewRef = useRef<WebView>(null);
   const socketRef = useRef<any>(null);
@@ -114,6 +115,10 @@ export default function ConsumerMap() {
         console.warn("Location unavailable, using default center.");
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    if (!webViewLoaded) return;
 
     const initSocket = async () => {
       const token = await SecureStore.getItemAsync('accessToken');
@@ -129,7 +134,12 @@ export default function ConsumerMap() {
       });
 
       socketRef.current.on('new_surplus_pin', (pin: Pin) => {
-        setPins(prev => [...prev, pin]);
+        setPins(prev => {
+          if (!prev.some(p => p.id === pin.id)) {
+            return [...prev, pin];
+          }
+          return prev;
+        });
         webViewRef.current?.injectJavaScript(`window.addPin(${JSON.stringify(pin)}); true;`);
       });
 
@@ -162,7 +172,7 @@ export default function ConsumerMap() {
     return () => {
       socketRef.current?.disconnect();
     };
-  }, []); 
+  }, [webViewLoaded]); 
 
   useEffect(() => {
     if (userLocation && socketRef.current?.connected) {
@@ -217,6 +227,7 @@ export default function ConsumerMap() {
         style={styles.map}
         source={{ html: mapHtml }}
         onMessage={onMessage}
+        onLoad={() => setWebViewLoaded(true)}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         originWhitelist={['*']}

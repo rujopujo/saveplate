@@ -5,53 +5,72 @@ export const MUMBAI_BOUNDS = {
   NE: { lng: 73.05, lat: 19.35 }
 };
 
+export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3;
+  const p1 = lat1 * Math.PI / 180;
+  const p2 = lat2 * Math.PI / 180;
+  const dp = (lat2 - lat1) * Math.PI / 180;
+  const dl = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(dp / 2) * Math.sin(dp / 2) +
+            Math.cos(p1) * Math.cos(p2) *
+            Math.sin(dl / 2) * Math.sin(dl / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
 export async function findNearbyUsers(prisma: PrismaClient, lng: number, lat: number, radiusMeters = 5000) {
-  return prisma.$queryRawUnsafe<{ id: string, email: string }[]>(
-    `SELECT id, email FROM "User" 
-     WHERE role = 'CONSUMER' 
-     AND location IS NOT NULL 
-     AND ST_DWithin(location::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)`,
-    lng, lat, radiusMeters
-  );
+  const users = await prisma.user.findMany({
+    where: {
+      role: 'CONSUMER',
+      lat: { not: null },
+      lng: { not: null },
+    }
+  });
+  return users.filter(u => u.lat && u.lng && haversineDistance(lat, lng, u.lat, u.lng) <= radiusMeters).map(u => ({ id: u.id, email: u.email }));
 }
 
 export async function claimWithLock(prisma: PrismaClient, surplusItemId: string, consumerId: string, qty = 1) {
   return prisma.$transaction(async (tx) => {
-    const items = await tx.$queryRawUnsafe<{ quantity: number, active: boolean }[]>(
-      `SELECT quantity, active FROM surplus_items WHERE id = $1::uuid FOR UPDATE`,
-      surplusItemId
-    );
+    const item = await tx.surplusItem.findFirst({
+      where: { id: surplusItemId }
+    });
 
-    if (!items.length || !items[0].active) throw new Error('Item not available');
+    if (!item || !item.active) throw new Error('Item not available');
+    if (item.quantity < qty) throw new Error('Insufficient stock');
     
-    const currentQty = items[0].quantity;
-    if (currentQty < qty) throw new Error('Insufficient stock');
-    
-    await tx.$executeRawUnsafe(
-      `UPDATE surplus_items SET quantity = quantity - $2 WHERE id = $1::uuid`,
-      surplusItemId, qty
-    );
-    
-    const newQuantity = currentQty - qty;
+    const newQuantity = item.quantity - qty;
     const soldOut = newQuantity === 0;
     
-    if (soldOut) {
-      await tx.$executeRawUnsafe(
-        `UPDATE surplus_items SET active = false WHERE id = $1::uuid`,
-        surplusItemId
-      );
-    }
+    await tx.surplusItem.update({
+      where: { id: surplusItemId },
+      data: {
+        quantity: newQuantity,
+        active: !soldOut
+      }
+    });
     
     return { newQuantity, soldOut };
   });
 }
 
 export async function getActiveSurplusInBounds(prisma: PrismaClient, swLng: number, swLat: number, neLng: number, neLat: number) {
-  return prisma.$queryRawUnsafe<{ id: string, name: string, quantity: number, discount_tier: string, lng: number, lat: number, pickup_window_end: Date, restaurant_id: string }[]>(
-    `SELECT id, name, quantity, discount_tier, ST_X(location::geometry) as lng, ST_Y(location::geometry) as lat, pickup_window_end, restaurant_id
-     FROM surplus_items 
-     WHERE active = true 
-     AND ST_Within(location::geometry, ST_MakeEnvelope($1, $2, $3, $4, 4326))`,
-    swLng, swLat, neLng, neLat
-  );
+  const items = await prisma.surplusItem.findMany({
+    where: {
+      active: true,
+      lat: { gte: swLat, lte: neLat },
+      lng: { gte: swLng, lte: neLng }
+    }
+  });
+  return items.map(item => ({
+    id: item.id,
+    name: item.name,
+    quantity: item.quantity,
+    discount_tier: item.discountTier,
+    lng: item.lng,
+    lat: item.lat,
+    pickup_window_end: item.pickupWindowEnd,
+    restaurant_id: item.restaurantId
+  }));
 }
