@@ -179,4 +179,3 @@ const styles = StyleSheet.create({
   buttonText: { color: '#1a1a2e', fontWeight: 'bold', fontSize: 18 },
   centerText: { textAlign: 'center', margin: 20, fontSize: 18 }
 });
-);
