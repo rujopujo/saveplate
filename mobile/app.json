@@ -7,6 +7,10 @@
     "platforms": [
       "android"
     ],
+    "splash": {
+      "backgroundColor": "#1a1a2e",
+      "resizeMode": "contain"
+    },
     "android": {
       "package": "com.saveplate.app",
       "permissions": [
@@ -16,6 +20,11 @@
     },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0a98c3ab-dc3d-4f81-8e51-8274a19982a4"
+      }
+    }
   }
 }
