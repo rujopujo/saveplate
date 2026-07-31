@@ -60,7 +60,7 @@ app.post('/api/v1/auth/register', authLimiter, async (req: any, res: any) => {
     const hashedPassword = await bcrypt.hash(password, 12);
     
     const user = await prisma.user.create({
-      data: { email, password: hashedPassword, name, role }
+      data: { email, password: hashedPassword, name, role: role as 'CONSUMER' | 'RESTAURANT' }
     });
     
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '15m' });
@@ -77,6 +77,7 @@ app.post('/api/v1/auth/register', authLimiter, async (req: any, res: any) => {
     
     res.json({ accessToken: token, refreshToken, user: { role: user.role } });
   } catch (e: any) {
+    console.error("Registration error:", e);
     res.status(400).json({ error: e.errors ? e.errors : 'Registration failed' });
   }
 });
